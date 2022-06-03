@@ -1,0 +1,148 @@
+###################### LINKS ######################
+
+- Instalar kubectl (somente se for trabalhar com single node): https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/
+
+- Instalar Minikube (somente se for trabalhar com single node): https://minikube.sigs.k8s.io/docs/start/
+
+- Instalar kubeadm, kublet, kubctl (somente se for trabalhar com clusters): https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/
+
+- Criando clusters com o kubeadm (somente se for trabalhar com clusters): https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/
+
+- Habilitando um Web UI Dashboard para o Kubernetes: https://kubernetes.io/docs/tasks/access-application-cluster/web-ui-dashboard/
+
+###################### ANTES DE TUDO (EM TODAS AS MÁQUINAS LINUX) ######################
+
+1) Atualizar o repositório e instalar dependências
+
+	$ sudo apt update
+	$ sudo apt-get install apt-transport-https ca-certificates curl gnupg lsb-release
+
+2) Instalar o Docker
+
+	- Adicionar a GPG Key oficial do Docker
+
+		$ curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+
+	- Adicionar o repositório
+
+		$ echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+	- Instalar o Docker Engine
+
+		$ sudo apt-get update
+		$ sudo apt-get install docker-ce docker-ce-cli containerd.io
+
+	- Configurar o Docker para usar o "systemd" para o gerenciamento dos cgroups dos containers
+	
+		$ cat <<EOF | sudo tee /etc/docker/daemon.json
+{
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "100m"
+  },
+  "storage-driver": "overlay2"
+}
+EOF
+	
+	- CConfigurar o Containerd para usar o "systemd" para o gerenciamento dos cgroups dos containers
+		
+		$ containerd config default | sudo tee /etc/containerd/config.toml
+		$ sudo sed -i 's/SystemdCgroup \= false/SystemdCgroup \= true/g' /etc/containerd/config.toml
+	
+	- Reiniciar os serviços:
+
+		$ sudo systemctl restart docker
+		$ sudo systemctl restart containerd
+	
+	- Adicionar usuário no grupo Docker
+
+		$ sudo usermod -aG docker $USER && newgrp docker
+
+	- Verificar se a instalação foi realizada corretamente
+
+		$ sudo docker run hello-world
+
+3) Desabilitar o uso do Swap
+
+	- Desabilitar o Swap imediatamente (deve ser desabilitado para o kubelet funcionar corretamente)
+
+		$ sudo swapoff -a 
+		
+	- Desabilitar o Swap sempre que reiniciar
+	
+		$ sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
+
+###################### CRIAÇÃO DO CLUSTER ######################
+
+#### EM TODOS OS NÓS ####
+
+1) Habilitar os seguintes módulos do Kenerl "br_netfilter" e "overlay" permissão que o iptables veja corretamente o tráfego nas bridges
+
+
+	$ cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+br_netfilter
+overlay
+EOF
+
+	$ cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.ipv4.ip_forward = 1
+EOF
+
+	$ sudo modprobe br_netfilter
+	
+	$ sudo modprobe overlay
+
+	$ sudo sysctl --system
+
+2) Instalar o kubeadm, kubelet e kubectl
+
+	- Baixar a Google Cloud public signing key:
+
+		$ sudo curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+
+	- Adicionar o repositório apt do Kubernetes:
+
+		$ echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+	- Instalar kubelet, kubeadm e kubectl:
+
+		$ sudo apt-get update
+		$ sudo apt-get install -y kubelet kubeadm kubectl
+		
+	- Impedir que atualizações das ferramentas sejam instaladas
+		
+		$ sudo apt-mark hold kubelet kubeadm kubectl
+
+	- Verificar a versão instalada
+		
+		$ sudo kubeadm version
+		
+#### CONFIGURAÇÕES NO NÓ MASTER ####
+
+1) Iniciar o Master Node (ao fim, salvar o comando kubeadm join)
+
+	$ sudo kubeadm init --pod-network-cidr=10.244.0.0/16
+
+Ao final, este comando vai gerar o link necessário para adicionar nós Workers ao clusters. Como o exemplo abaixo:
+
+(Isso é só um exemplo) kubeadm join 172.31.17.125:6443 --token flg1l5.323lk7kploih02dd --discovery-token-ca-cert-hash sha256:2686671229066ea092d1dcc82bec56378035c53ff4dbbce8214547a5a8439d2d  
+
+2) Após criar o cluster, habilitar a interação:
+
+- Para começar a usar o cluste, você deve executar os seguintes comendos com o seu usuário regular:
+
+  sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+  sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+3) Instalar uma Pod network no Cluster para habilitar a comunicação entre os nós e os Pods (Container Networking Interface (CNI))
+
+	$ kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+	$ kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/k8s-manifests/kube-flannel-rbac.yml
+
+4) Opcionalmente (não recomendo), você pode permitir que o node master execute Pods
+
+	$ kubectl taint nodes --all node-role.kubernetes.io/master-
