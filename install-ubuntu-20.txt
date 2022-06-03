@@ -135,6 +135,7 @@ Ao final, este comando vai gerar o link necessário para adicionar nós Workers 
 
 - Para começar a usar o cluste, você deve executar os seguintes comendos com o seu usuário regular:
 
+  mkdir -p $HOME/.kube
   sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
   sudo chown $(id -u):$(id -g) $HOME/.kube/config
 

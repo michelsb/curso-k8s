@@ -10,3 +10,12 @@ spec:
       image: aluracursos/sistema-noticias:1
       ports:
         - containerPort: 80
+      env:
+        - name: HOST_DB
+          value: "svc-db-noticias:3306"
+        - name: USER_DB
+          value: "root"
+        - name: PASS_DB
+          value: "q1w2e3r4"
+        - name: DATABASE_DB
+          value: "empresa"
